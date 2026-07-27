@@ -1,0 +1,825 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Play, Square, Settings, ChevronRight, Heart, Flame, Utensils, ArrowLeft, Check, Zap, Camera, AlertCircle, RotateCcw, Keyboard } from 'lucide-react';
+
+const FONT_IMPORT = "@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap');";
+
+const GRADIENT = 'linear-gradient(135deg, #2F8FE8 0%, #22C08E 100%)';
+const INK = '#10221E';
+const INK_SOFT = '#5C7871';
+const BG = 'linear-gradient(180deg, #3A4A78 0%, #7A5F8F 32%, #C97B8A 58%, #EFA26B 80%, #F6C87E 100%)';
+const ON_BG = '#FFFFFF';
+const ON_BG_SOFT = 'rgba(255,255,255,0.78)';
+const TEXT_SHADOW = '0 1px 4px rgba(20,10,30,0.25)';
+
+function Skyline({ opacity = 0.5 }) {
+  const buildings = [
+    { x: 0, w: 34, h: 90 }, { x: 30, w: 22, h: 140 }, { x: 48, w: 28, h: 70 },
+    { x: 72, w: 18, h: 160 }, { x: 86, w: 30, h: 100 }, { x: 112, w: 20, h: 190, spire: true },
+    { x: 128, w: 26, h: 120 }, { x: 150, w: 20, h: 80 }, { x: 166, w: 32, h: 150 },
+    { x: 194, w: 22, h: 95 }, { x: 212, w: 18, h: 130 }, { x: 226, w: 28, h: 75 },
+  ];
+  return (
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, height: 200, pointerEvents: 'none', opacity, zIndex: 0 }}>
+      <svg width="100%" height="100%" viewBox="0 0 254 200" preserveAspectRatio="none" style={{ display: 'block' }}>
+        <rect x="0" y="200" width="254" height="0" />
+        {buildings.map((b, i) => (
+          <g key={i}>
+            <rect x={b.x} y={200 - b.h} width={b.w} height={b.h} fill="#1A1230" />
+            {b.spire && <rect x={b.x + b.w / 2 - 1.5} y={200 - b.h - 22} width="3" height="22" fill="#1A1230" />}
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+const todayKey = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const GOALS = {
+  loss: { label: 'Fat loss', eatBackPct: 0.5, proteinPerLb: 0.9, note: 'Partial refuel keeps you in a deficit while protecting muscle.' },
+  gain: { label: 'Muscle gain', eatBackPct: 1.15, proteinPerLb: 1.0, note: 'Slight surplus fuels recovery and growth.' },
+  maintain: { label: 'Maintain', eatBackPct: 1.0, proteinPerLb: 0.8, note: 'Even trade — replace what you burned.' },
+};
+
+const FOOD_SUGGESTIONS = {
+  loss: {
+    protein: ['Grilled chicken breast', 'White fish', 'Egg whites', 'Greek yogurt'],
+    carb: ['Leafy greens', 'Berries', 'Quinoa (small portion)'],
+    fat: ['Avocado (small)', 'Almonds (handful)'],
+  },
+  gain: {
+    protein: ['Salmon', 'Beef', 'Whole eggs', 'Cottage cheese'],
+    carb: ['Rice', 'Oats', 'Sweet potato', 'Banana'],
+    fat: ['Peanut butter', 'Olive oil', 'Nuts'],
+  },
+  maintain: {
+    protein: ['Chicken thigh', 'Tofu', 'Eggs', 'Greek yogurt'],
+    carb: ['Brown rice', 'Fruit', 'Whole grain bread'],
+    fat: ['Avocado', 'Olive oil', 'Nut butter'],
+  },
+};
+
+function kgFromLb(lb) { return lb * 0.453592; }
+
+function caloriesBurned({ avgHR, durationMin, weightLb, age, sex }) {
+  const weightKg = kgFromLb(weightLb);
+  let calPerMin;
+  if (sex === 'male') {
+    calPerMin = (-55.0969 + 0.6309 * avgHR + 0.1988 * weightKg + 0.2017 * age) / 4.184;
+  } else {
+    calPerMin = (-20.4022 + 0.4472 * avgHR - 0.1263 * weightKg + 0.074 * age) / 4.184;
+  }
+  return Math.max(0, Math.round(calPerMin * durationMin));
+}
+
+function GradientButton({ children, onClick, style = {}, disabled }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        background: disabled ? '#C9D6D3' : GRADIENT,
+        border: 'none',
+        borderRadius: 999,
+        color: 'white',
+        fontFamily: "'Manrope', sans-serif",
+        fontWeight: 700,
+        fontSize: 15,
+        padding: '14px 28px',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+        boxShadow: disabled ? 'none' : '0 8px 24px -8px rgba(47,143,232,0.45)',
+        ...style,
+      }}
+      onMouseDown={(e) => !disabled && (e.currentTarget.style.transform = 'scale(0.97)')}
+      onMouseUp={(e) => !disabled && (e.currentTarget.style.transform = 'scale(1)')}
+    >
+      {children}
+    </button>
+  );
+}
+
+function PulseOrb({ size = 160, active = true }) {
+  return (
+    <div style={{ position: 'relative', width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <style>{`
+        @keyframes orbPulse {
+          0% { transform: scale(0.85); opacity: 0.55; }
+          50% { transform: scale(1.05); opacity: 0.9; }
+          100% { transform: scale(0.85); opacity: 0.55; }
+        }
+        @keyframes orbPulseSlow {
+          0% { transform: scale(0.95); }
+          50% { transform: scale(1.0); }
+          100% { transform: scale(0.95); }
+        }
+      `}</style>
+      <div style={{
+        position: 'absolute', width: '100%', height: '100%', borderRadius: '50%',
+        background: GRADIENT, opacity: 0.25,
+        animation: active ? 'orbPulse 1.8s ease-in-out infinite' : 'none',
+      }} />
+      <div style={{
+        width: '68%', height: '68%', borderRadius: '50%', background: GRADIENT,
+        animation: active ? 'orbPulseSlow 1.8s ease-in-out infinite' : 'none',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: '0 12px 32px -8px rgba(34,192,142,0.5)',
+      }}>
+        <Heart size={size * 0.28} color="white" fill="white" />
+      </div>
+    </div>
+  );
+}
+
+function Card({ children, style = {} }) {
+  return (
+    <div style={{ background: 'white', borderRadius: 20, padding: 20, boxShadow: '0 2px 16px -4px rgba(16,34,30,0.08)', ...style }}>
+      {children}
+    </div>
+  );
+}
+
+function TopBar({ title, onBack, onSettings }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, position: 'relative', zIndex: 1 }}>
+      {onBack ? (
+        <button onClick={onBack} style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 10, cursor: 'pointer', color: ON_BG, padding: 6 }}>
+          <ArrowLeft size={22} />
+        </button>
+      ) : <div style={{ width: 34 }} />}
+      <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 17, color: ON_BG, textShadow: TEXT_SHADOW }}>{title}</span>
+      {onSettings ? (
+        <button onClick={onSettings} style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 10, cursor: 'pointer', color: ON_BG, padding: 6 }}>
+          <Settings size={20} />
+        </button>
+      ) : <div style={{ width: 34 }} />}
+    </div>
+  );
+}
+
+// ---------- Onboarding ----------
+function Onboarding({ onComplete }) {
+  const [age, setAge] = useState('');
+  const [weight, setWeight] = useState('');
+  const [sex, setSex] = useState('male');
+  const [restingHR, setRestingHR] = useState('');
+  const [goal, setGoal] = useState('maintain');
+
+  const canSubmit = age && weight;
+
+  return (
+    <div style={{ minHeight: '100vh', background: BG, padding: '40px 22px', fontFamily: "'Manrope', sans-serif" }}>
+      <style>{FONT_IMPORT}</style>
+      <Skyline opacity={0.35} />
+      <div style={{ maxWidth: 420, margin: '0 auto', position: 'relative', zIndex: 1 }}>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <PulseOrb size={100} />
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: ON_BG, textShadow: TEXT_SHADOW, margin: '18px 0 6px' }}>Welcome to Calorie Fit</h1>
+          <p style={{ color: ON_BG_SOFT, fontSize: 14, margin: 0, lineHeight: 1.5, textShadow: TEXT_SHADOW }}>
+            A few quick details so we can measure your workouts accurately.
+          </p>
+        </div>
+
+        <Card style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Field label="Age">
+            <input type="number" value={age} onChange={(e) => setAge(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && canSubmit && onComplete({ age: parseInt(age, 10), weightLb: parseFloat(weight), sex, restingHR: restingHR ? parseInt(restingHR, 10) : null, goal })} placeholder="32" style={inputStyle} />
+          </Field>
+          <Field label="Weight (lb)">
+            <input type="number" value={weight} onChange={(e) => setWeight(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && canSubmit && onComplete({ age: parseInt(age, 10), weightLb: parseFloat(weight), sex, restingHR: restingHR ? parseInt(restingHR, 10) : null, goal })} placeholder="165" style={inputStyle} />
+          </Field>
+          <Field label="Sex">
+            <div style={{ display: 'flex', gap: 8 }}>
+              {['male', 'female'].map((s) => (
+                <button key={s} onClick={() => setSex(s)} style={pillToggle(sex === s)}>
+                  {s === 'male' ? 'Male' : 'Female'}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Resting heart rate (optional)">
+            <input type="number" value={restingHR} onChange={(e) => setRestingHR(e.target.value)} placeholder="e.g. 62" style={inputStyle} />
+          </Field>
+          <Field label="Primary goal">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {Object.entries(GOALS).map(([key, g]) => (
+                <button key={key} onClick={() => setGoal(key)} style={{ ...pillToggle(goal === key), textAlign: 'left', justifyContent: 'flex-start', padding: '12px 16px' }}>
+                  {g.label}
+                </button>
+              ))}
+            </div>
+          </Field>
+        </Card>
+
+        <GradientButton
+          disabled={!canSubmit}
+          onClick={() => onComplete({ age: parseInt(age, 10), weightLb: parseFloat(weight), sex, restingHR: restingHR ? parseInt(restingHR, 10) : null, goal })}
+          style={{ width: '100%', marginTop: 20 }}
+        >
+          Get started <ChevronRight size={16} />
+        </GradientButton>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: INK_SOFT, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+const inputStyle = {
+  width: '100%', boxSizing: 'border-box', border: '1.5px solid #E3ECEA', borderRadius: 12,
+  padding: '11px 14px', fontFamily: "'IBM Plex Mono', monospace", fontSize: 15, color: INK, outline: 'none',
+};
+
+function pillToggle(active) {
+  return {
+    flex: 1, border: active ? 'none' : '1.5px solid #E3ECEA', borderRadius: 12,
+    padding: '11px 0', background: active ? GRADIENT : 'white', color: active ? 'white' : INK,
+    fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 14, cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease',
+  };
+}
+
+// ---------- Home ----------
+function Home({ profile, workouts, onStartWorkout, onSettings }) {
+  const totalBurn = workouts.reduce((s, w) => s + w.calBurned, 0);
+  const totalEatBack = workouts.reduce((s, w) => s + w.eatBack, 0);
+  const goal = GOALS[profile.goal];
+
+  return (
+    <div style={{ minHeight: '100vh', background: BG, padding: '32px 20px 60px', fontFamily: "'Manrope', sans-serif" }}>
+      <style>{FONT_IMPORT}</style>
+      <Skyline opacity={0.4} />
+      <div style={{ maxWidth: 440, margin: '0 auto', position: 'relative', zIndex: 1 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <div>
+            <div style={{ fontSize: 13, color: ON_BG_SOFT, fontWeight: 600, textShadow: TEXT_SHADOW }}>{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: ON_BG, textShadow: TEXT_SHADOW }}>Calorie Fit</div>
+          </div>
+          <button onClick={onSettings} style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 12, padding: 10, cursor: 'pointer', boxShadow: '0 2px 10px -2px rgba(16,34,30,0.2)' }}>
+            <Settings size={19} color={INK} />
+          </button>
+        </div>
+
+        {/* Hero */}
+        <div style={{ background: GRADIENT, borderRadius: 24, padding: 26, color: 'white', marginBottom: 18, position: 'relative', overflow: 'hidden' }}>
+          <div style={{ fontSize: 12, opacity: 0.85, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Today's burn</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 46, fontWeight: 600, marginTop: 4 }}>{totalBurn.toLocaleString()}</div>
+          <div style={{ display: 'flex', gap: 18, marginTop: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.8 }}>Eat back</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 17, fontWeight: 600 }}>{totalEatBack.toLocaleString()} cal</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.8 }}>Goal</div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{goal.label}</div>
+            </div>
+          </div>
+        </div>
+
+        <GradientButton onClick={onStartWorkout} style={{ width: '100%', marginBottom: 24, padding: '16px 0', fontSize: 16 }}>
+          <Play size={17} fill="white" /> Start workout
+        </GradientButton>
+
+        <div style={{ fontSize: 13, fontWeight: 700, color: ON_BG_SOFT, textShadow: TEXT_SHADOW, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Today's workouts</div>
+        {workouts.length === 0 && (
+          <Card style={{ textAlign: 'center', color: INK_SOFT, fontSize: 14 }}>No workouts logged yet today.</Card>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {workouts.slice().reverse().map((w) => (
+            <Card key={w.id} style={{ padding: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 700, color: INK, fontSize: 15 }}>{w.name}</div>
+                  <div style={{ fontSize: 12, color: INK_SOFT, marginTop: 2 }}>{Math.round(w.durationSec / 60)} min · avg {w.avgHR} bpm</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color: '#22C08E' }}>{w.calBurned}</div>
+                  <div style={{ fontSize: 11, color: INK_SOFT }}>cal burned</div>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Workout flow ----------
+function WorkoutSetup({ onBack, onNext }) {
+  const [name, setName] = useState('');
+  return (
+    <div style={{ minHeight: '100vh', background: BG, padding: '28px 20px', fontFamily: "'Manrope', sans-serif" }}>
+      <style>{FONT_IMPORT}</style>
+      <div style={{ maxWidth: 420, margin: '0 auto' }}>
+        <TopBar title="New workout" onBack={onBack} />
+        <Card>
+          <Field label="What are you doing?">
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && name.trim() && onNext(name.trim())}
+              placeholder="e.g. Running, Weights, Cycling"
+              style={inputStyle}
+            />
+          </Field>
+        </Card>
+        <GradientButton disabled={!name.trim()} onClick={() => onNext(name.trim())} style={{ width: '100%', marginTop: 20 }}>
+          Continue <ChevronRight size={16} />
+        </GradientButton>
+      </div>
+    </div>
+  );
+}
+
+const SCAN_MS = 12000;
+
+function HRCapture({ label, sub, onSubmit, onBack }) {
+  const [mode, setMode] = useState('choose'); // choose | scan | manual | result
+  const [bpm, setBpm] = useState('');
+  const [scanBpm, setScanBpm] = useState(null);
+  const [scanError, setScanError] = useState('');
+  const [progress, setProgress] = useState(0);
+
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const samplesRef = useRef([]);
+  const rafRef = useRef(null);
+  const startTimeRef = useRef(0);
+
+  const cameraSupported = typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+
+  const stopStream = useCallback(() => {
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    if (streamRef.current) {
+      const track = streamRef.current.getVideoTracks()[0];
+      try { track && track.applyConstraints({ advanced: [{ torch: false }] }); } catch (e) { /* noop */ }
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => stopStream(), [stopStream]);
+
+  const finishScan = useCallback(() => {
+    stopStream();
+    const samples = samplesRef.current;
+    if (samples.length < 30) {
+      setScanError("Signal was too weak to read. Cover the camera and flash completely with your fingertip and try again.");
+      setMode('choose');
+      return;
+    }
+    const win = 3;
+    const smoothed = samples.map((s, i) => {
+      let sum = 0, c = 0;
+      for (let j = Math.max(0, i - win); j <= Math.min(samples.length - 1, i + win); j++) { sum += samples[j].v; c++; }
+      return { t: s.t, v: sum / c };
+    });
+    const baseWin = 15;
+    const detrended = smoothed.map((p, i) => {
+      let sum = 0, c = 0;
+      for (let j = Math.max(0, i - baseWin); j <= Math.min(smoothed.length - 1, i + baseWin); j++) { sum += smoothed[j].v; c++; }
+      return { t: p.t, v: p.v - sum / c };
+    });
+    const mean = detrended.reduce((a, b) => a + b.v, 0) / detrended.length;
+    const variance = detrended.reduce((a, b) => a + (b.v - mean) ** 2, 0) / detrended.length;
+    const threshold = Math.sqrt(variance) * 0.4;
+
+    const peaks = [];
+    const minDistMs = 300;
+    for (let i = 1; i < detrended.length - 1; i++) {
+      const p = detrended[i];
+      if (p.v > detrended[i - 1].v && p.v >= detrended[i + 1].v && p.v > threshold) {
+        if (peaks.length === 0 || p.t - peaks[peaks.length - 1] > minDistMs) peaks.push(p.t);
+      }
+    }
+    if (peaks.length < 4) {
+      setScanError("Couldn't detect a clear pulse. Hold still with steady, gentle pressure, or enter your rate manually.");
+      setMode('choose');
+      return;
+    }
+    const durationSec = (peaks[peaks.length - 1] - peaks[0]) / 1000;
+    const estimate = Math.round(((peaks.length - 1) / durationSec) * 60);
+    setScanBpm(Math.min(200, Math.max(40, estimate)));
+    setMode('result');
+  }, [stopStream]);
+
+  const startScan = async () => {
+    setScanError('');
+    samplesRef.current = [];
+    setProgress(0);
+    setMode('scan');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 100 }, height: { ideal: 100 } },
+      });
+      streamRef.current = stream;
+      const track = stream.getVideoTracks()[0];
+      try {
+        const caps = track.getCapabilities ? track.getCapabilities() : {};
+        if (caps.torch) await track.applyConstraints({ advanced: [{ torch: true }] });
+      } catch (e) { /* torch unavailable, continue without it */ }
+
+      const video = videoRef.current;
+      video.srcObject = stream;
+      await video.play();
+
+      const canvas = canvasRef.current;
+      canvas.width = 20; canvas.height = 20;
+      const ctx = canvas.getContext('2d');
+      startTimeRef.current = performance.now();
+
+      const tick = () => {
+        const elapsed = performance.now() - startTimeRef.current;
+        if (elapsed >= SCAN_MS) { finishScan(); return; }
+        try {
+          ctx.drawImage(video, 0, 0, 20, 20);
+          const frame = ctx.getImageData(0, 0, 20, 20).data;
+          let sum = 0;
+          for (let i = 0; i < frame.length; i += 4) sum += frame[i];
+          samplesRef.current.push({ t: elapsed, v: sum / (frame.length / 4) });
+        } catch (e) { /* frame not ready yet */ }
+        setProgress(Math.min(100, (elapsed / SCAN_MS) * 100));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    } catch (err) {
+      setScanError("Couldn't access the camera here — try manual entry instead.");
+      setMode('manual');
+      stopStream();
+    }
+  };
+
+  const handleBack = () => { stopStream(); onBack(); };
+
+  return (
+    <div style={{ minHeight: '100vh', background: BG, padding: '28px 20px', fontFamily: "'Manrope', sans-serif", display: 'flex', flexDirection: 'column' }}>
+      <style>{FONT_IMPORT}</style>
+      <video ref={videoRef} muted playsInline style={{ position: 'fixed', top: -9999, left: -9999, width: 2, height: 2 }} />
+      <canvas ref={canvasRef} style={{ position: 'fixed', top: -9999, left: -9999 }} />
+      <div style={{ maxWidth: 420, margin: '0 auto', width: '100%', flex: 1 }}>
+        <TopBar title={label} onBack={handleBack} />
+
+        {mode === 'choose' && (
+          <>
+            <div style={{ textAlign: 'center', margin: '20px 0 24px' }}><PulseOrb size={150} active={false} /></div>
+            <p style={{ textAlign: 'center', color: ON_BG_SOFT, textShadow: TEXT_SHADOW, fontSize: 14, marginBottom: 20, lineHeight: 1.5 }}>{sub}</p>
+
+            {scanError && (
+              <Card style={{ background: '#FFF4EE', marginBottom: 14, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <AlertCircle size={18} color="#D9713C" style={{ flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 13, color: INK, lineHeight: 1.4 }}>{scanError}</span>
+              </Card>
+            )}
+
+            {cameraSupported && (
+              <GradientButton onClick={startScan} style={{ width: '100%', marginBottom: 12, padding: '16px 0', fontSize: 16 }}>
+                <Camera size={17} /> Scan with camera
+              </GradientButton>
+            )}
+            <button
+              onClick={() => setMode('manual')}
+              style={{
+                width: '100%', background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 999,
+                padding: '14px 0', fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 15, color: INK,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}
+            >
+              <Keyboard size={16} /> Enter manually
+            </button>
+          </>
+        )}
+
+        {mode === 'scan' && (
+          <div style={{ textAlign: 'center', marginTop: 10 }}>
+            <PulseOrb size={170} />
+            <p style={{ color: ON_BG_SOFT, textShadow: TEXT_SHADOW, fontSize: 14, margin: '22px 0 6px', lineHeight: 1.5 }}>
+              Cover the rear camera and flash completely with your fingertip. Hold still.
+            </p>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", color: ON_BG, textShadow: TEXT_SHADOW, fontSize: 14, marginBottom: 14 }}>
+              {Math.ceil((SCAN_MS - (progress / 100) * SCAN_MS) / 1000)}s remaining
+            </div>
+            <div style={{ height: 8, background: 'rgba(255,255,255,0.35)', borderRadius: 4, overflow: 'hidden', marginBottom: 20 }}>
+              <div style={{ height: '100%', width: `${progress}%`, background: GRADIENT, transition: 'width 0.1s linear' }} />
+            </div>
+            <button
+              onClick={() => { stopStream(); setMode('choose'); }}
+              style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 999, padding: '10px 22px', color: ON_BG, fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {mode === 'result' && (
+          <div style={{ textAlign: 'center', marginTop: 10 }}>
+            <PulseOrb size={150} active={false} />
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 52, fontWeight: 600, color: ON_BG, textShadow: TEXT_SHADOW, margin: '20px 0 2px' }}>{scanBpm}</div>
+            <div style={{ color: ON_BG_SOFT, textShadow: TEXT_SHADOW, fontSize: 13, marginBottom: 24 }}>beats per minute</div>
+            <GradientButton onClick={() => onSubmit(scanBpm)} style={{ width: '100%', marginBottom: 10 }}>
+              Confirm <Check size={16} />
+            </GradientButton>
+            <button
+              onClick={() => { setScanError(''); setMode('choose'); }}
+              style={{ width: '100%', background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 999, padding: '13px 0', fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 14, color: INK, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+            >
+              <RotateCcw size={15} /> Rescan
+            </button>
+          </div>
+        )}
+
+        {mode === 'manual' && (
+          <>
+            <div style={{ textAlign: 'center', margin: '20px 0 24px' }}><PulseOrb size={130} active={false} /></div>
+            <Card>
+              <Field label="Heart rate (bpm)">
+                <input
+                  autoFocus
+                  type="number"
+                  value={bpm}
+                  onChange={(e) => setBpm(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && bpm && onSubmit(parseInt(bpm, 10))}
+                  placeholder="e.g. 128"
+                  style={{ ...inputStyle, fontSize: 24, textAlign: 'center', fontWeight: 600 }}
+                />
+              </Field>
+            </Card>
+            <GradientButton disabled={!bpm} onClick={() => onSubmit(parseInt(bpm, 10))} style={{ width: '100%', marginTop: 20 }}>
+              Confirm <Check size={16} />
+            </GradientButton>
+            {cameraSupported && (
+              <button
+                onClick={() => setMode('choose')}
+                style={{ width: '100%', background: 'none', border: 'none', padding: '14px 0', fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 13, color: ON_BG_SOFT, textShadow: TEXT_SHADOW, cursor: 'pointer' }}
+              >
+                Try camera scan instead
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StopwatchScreen({ onStop }) {
+  const [seconds, setSeconds] = useState(0);
+  const intervalRef = useRef(null);
+
+  useEffect(() => {
+    intervalRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(intervalRef.current);
+  }, []);
+
+  const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
+  const ss = String(seconds % 60).padStart(2, '0');
+
+  return (
+    <div style={{ minHeight: '100vh', background: BG, padding: '28px 20px', fontFamily: "'Manrope', sans-serif", display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+      <style>{FONT_IMPORT}</style>
+      <Skyline opacity={0.4} />
+      <div style={{ fontSize: 13, fontWeight: 700, color: ON_BG_SOFT, textShadow: TEXT_SHADOW, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14, position: 'relative', zIndex: 1 }}>Workout in progress</div>
+      <PulseOrb size={180} />
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 56, fontWeight: 600, color: ON_BG, textShadow: TEXT_SHADOW, marginTop: 30, letterSpacing: '0.02em', position: 'relative', zIndex: 1 }}>
+        {mm}:{ss}
+      </div>
+      <button
+        onClick={() => onStop(seconds)}
+        style={{
+          marginTop: 36, background: INK, color: 'white', border: 'none', borderRadius: 999,
+          padding: '16px 40px', fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 15,
+          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+        }}
+      >
+        <Square size={15} fill="white" /> Stop
+      </button>
+    </div>
+  );
+}
+
+function Results({ result, onDone }) {
+  const goal = GOALS[result.goal];
+  const suggestions = FOOD_SUGGESTIONS[result.goal];
+  return (
+    <div style={{ minHeight: '100vh', background: BG, padding: '28px 20px 60px', fontFamily: "'Manrope', sans-serif" }}>
+      <style>{FONT_IMPORT}</style>
+      <Skyline opacity={0.35} />
+      <div style={{ maxWidth: 440, margin: '0 auto', position: 'relative', zIndex: 1 }}>
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <Zap size={30} color="#FFFFFF" style={{ filter: 'drop-shadow(0 1px 3px rgba(20,10,30,0.3))' }} />
+          <h2 style={{ fontSize: 20, fontWeight: 800, color: ON_BG, textShadow: TEXT_SHADOW, margin: '8px 0 2px' }}>{result.name} complete</h2>
+          <div style={{ fontSize: 13, color: ON_BG_SOFT, textShadow: TEXT_SHADOW }}>{Math.round(result.durationSec / 60)} min · avg {result.avgHR} bpm</div>
+        </div>
+
+        <div style={{ background: GRADIENT, borderRadius: 20, padding: 24, textAlign: 'center', color: 'white', marginBottom: 16 }}>
+          <div style={{ fontSize: 12, opacity: 0.85, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Calories burned</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 48, fontWeight: 600 }}>{result.calBurned}</div>
+        </div>
+
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: 12, color: INK_SOFT, fontWeight: 600, textTransform: 'uppercase' }}>Eat back</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 26, fontWeight: 600, color: INK }}>{result.eatBack} cal</div>
+            </div>
+            <div style={{ textAlign: 'right', maxWidth: 160, fontSize: 12, color: INK_SOFT, lineHeight: 1.4 }}>{goal.note}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 12, marginTop: 14, paddingTop: 14, borderTop: '1px solid #EEF3F2' }}>
+            <MacroPill label="Protein" value={`${result.protein}g`} />
+            <MacroPill label="Carbs" value={`${result.carbs}g`} />
+            <MacroPill label="Fat" value={`${result.fat}g`} />
+          </div>
+        </Card>
+
+        <Card>
+          <div style={{ fontSize: 13, fontWeight: 700, color: INK, marginBottom: 12 }}>Good foods for {goal.label.toLowerCase()}</div>
+          {Object.entries(suggestions).map(([cat, items]) => (
+            <div key={cat} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: INK_SOFT, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{cat}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {items.map((f) => (
+                  <span key={f} style={{ background: '#EEF6F4', color: INK, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 999 }}>{f}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </Card>
+
+        <GradientButton onClick={onDone} style={{ width: '100%', marginTop: 20 }}>Done</GradientButton>
+      </div>
+    </div>
+  );
+}
+
+function MacroPill({ label, value }) {
+  return (
+    <div style={{ flex: 1, textAlign: 'center' }}>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, fontWeight: 600, color: INK }}>{value}</div>
+      <div style={{ fontSize: 11, color: INK_SOFT }}>{label}</div>
+    </div>
+  );
+}
+
+// ---------- Settings ----------
+function SettingsScreen({ profile, onBack, onSave }) {
+  const [local, setLocal] = useState(profile);
+  return (
+    <div style={{ minHeight: '100vh', background: BG, padding: '28px 20px', fontFamily: "'Manrope', sans-serif" }}>
+      <style>{FONT_IMPORT}</style>
+      <div style={{ maxWidth: 420, margin: '0 auto' }}>
+        <TopBar title="Settings" onBack={onBack} />
+        <Card style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 16 }}>
+          <Field label="Age">
+            <input type="number" value={local.age} onChange={(e) => setLocal({ ...local, age: parseInt(e.target.value, 10) || 0 })} style={inputStyle} />
+          </Field>
+          <Field label="Weight (lb)">
+            <input type="number" value={local.weightLb} onChange={(e) => setLocal({ ...local, weightLb: parseFloat(e.target.value) || 0 })} style={inputStyle} />
+          </Field>
+          <Field label="Sex">
+            <div style={{ display: 'flex', gap: 8 }}>
+              {['male', 'female'].map((s) => (
+                <button key={s} onClick={() => setLocal({ ...local, sex: s })} style={pillToggle(local.sex === s)}>{s === 'male' ? 'Male' : 'Female'}</button>
+              ))}
+            </div>
+          </Field>
+        </Card>
+
+        <div style={{ fontSize: 13, fontWeight: 700, color: ON_BG_SOFT, textShadow: TEXT_SHADOW, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Goal</div>
+        <Card style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+          {Object.entries(GOALS).map(([key, g]) => (
+            <button key={key} onClick={() => setLocal({ ...local, goal: key })} style={{ ...pillToggle(local.goal === key), textAlign: 'left', justifyContent: 'flex-start', padding: '12px 16px' }}>
+              {g.label}
+            </button>
+          ))}
+        </Card>
+
+        <GradientButton onClick={() => onSave(local)} style={{ width: '100%' }}>Save changes</GradientButton>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Root ----------
+export default function CalorieFitApp() {
+  const [screen, setScreen] = useState('loading');
+  const [profile, setProfile] = useState(null);
+  const [workouts, setWorkouts] = useState([]);
+  const [draft, setDraft] = useState({});
+
+  const dayKey = `workouts:${todayKey()}`;
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const p = await window.storage.get('profile');
+        if (p && p.value) {
+          setProfile(JSON.parse(p.value));
+          try {
+            const w = await window.storage.get(dayKey);
+            setWorkouts(w && w.value ? JSON.parse(w.value) : []);
+          } catch { setWorkouts([]); }
+          setScreen('home');
+        } else {
+          setScreen('onboarding');
+        }
+      } catch {
+        setScreen('onboarding');
+      }
+    })();
+    // eslint-disable-next-line
+  }, []);
+
+  const saveProfile = async (p) => {
+    setProfile(p);
+    try { await window.storage.set('profile', JSON.stringify(p)); } catch (e) { console.error(e); }
+  };
+
+  const saveWorkouts = async (list) => {
+    setWorkouts(list);
+    try { await window.storage.set(dayKey, JSON.stringify(list)); } catch (e) { console.error(e); }
+  };
+
+  const finishWorkout = (startHR, endHR) => {
+    const avgHR = Math.round((startHR + endHR) / 2);
+    const durationMin = draft.durationSec / 60;
+    const calBurned = caloriesBurned({ avgHR, durationMin, weightLb: profile.weightLb, age: profile.age, sex: profile.sex });
+    const g = GOALS[profile.goal];
+    const eatBack = Math.round(calBurned * g.eatBackPct);
+    const protein = Math.round(profile.weightLb * g.proteinPerLb * (calBurned / 300 > 1 ? 1 : 0.4) ) || Math.round(profile.weightLb * 0.1);
+    // simpler, clearer macro split of the eat-back calories
+    const proteinCal = eatBack * 0.35, carbCal = eatBack * 0.4, fatCal = eatBack * 0.25;
+    const result = {
+      ...draft, avgHR, calBurned, eatBack, goal: profile.goal,
+      protein: Math.round(proteinCal / 4), carbs: Math.round(carbCal / 4), fat: Math.round(fatCal / 9),
+    };
+    const entry = { id: Date.now(), name: result.name, durationSec: result.durationSec, avgHR, calBurned, eatBack };
+    saveWorkouts([...workouts, entry]);
+    setDraft(result);
+    setScreen('results');
+  };
+
+  if (screen === 'loading') return <div style={{ minHeight: '100vh', background: BG }} />;
+
+  if (screen === 'onboarding') {
+    return <Onboarding onComplete={(p) => { saveProfile(p); setScreen('home'); }} />;
+  }
+
+  if (screen === 'home') {
+    return <Home profile={profile} workouts={workouts} onStartWorkout={() => setScreen('workout-setup')} onSettings={() => setScreen('settings')} />;
+  }
+
+  if (screen === 'settings') {
+    return <SettingsScreen profile={profile} onBack={() => setScreen('home')} onSave={(p) => { saveProfile(p); setScreen('home'); }} />;
+  }
+
+  if (screen === 'workout-setup') {
+    return <WorkoutSetup onBack={() => setScreen('home')} onNext={(name) => { setDraft({ name }); setScreen('hr-start'); }} />;
+  }
+
+  if (screen === 'hr-start') {
+    return (
+      <HRCapture
+        label="Starting heart rate"
+        sub="Check your pulse for 15 seconds and multiply by 4, or read it from your watch/strap."
+        onBack={() => setScreen('workout-setup')}
+        onSubmit={(bpm) => { setDraft((d) => ({ ...d, startHR: bpm })); setScreen('running'); }}
+      />
+    );
+  }
+
+  if (screen === 'running') {
+    return <StopwatchScreen onStop={(seconds) => { setDraft((d) => ({ ...d, durationSec: seconds })); setScreen('hr-end'); }} />;
+  }
+
+  if (screen === 'hr-end') {
+    return (
+      <HRCapture
+        label="Ending heart rate"
+        sub="Check your pulse right after stopping — this is what we use to estimate your burn."
+        onBack={() => setScreen('running')}
+        onSubmit={(bpm) => finishWorkout(draft.startHR, bpm)}
+      />
+    );
+  }
+
+  if (screen === 'results') {
+    return <Results result={draft} onDone={() => setScreen('home')} />;
+  }
+
+  return null;
+}
